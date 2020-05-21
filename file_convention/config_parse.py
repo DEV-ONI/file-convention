@@ -3,9 +3,7 @@ from pprint import pprint
 
 
 def load_config(path):
-    # required: target_directory
     config = toml.load(path)
-    pprint(config)
+    conventions_map = {convention['target_directory']: convention for convention in config}
 
-
-load_config(TEST_PATH)
+    return conventions_map

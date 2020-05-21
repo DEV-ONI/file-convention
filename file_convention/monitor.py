@@ -6,14 +6,13 @@ import re
 import toml
 
 from pprint import pprint
-# from logger import log_print
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import watchdog.events as events
-# from watchdog.events import LoggingEventHandler
 
 import threading
+from functools import reduce
 
 TEST_CONFIG = r'./tests/data/test_conventions.toml'
 TEST_PATH = r'./simulated_folder'
@@ -26,8 +25,8 @@ FOLDER_SORT_KEY = 'file_sort'
 # event handler with overriden methods from the base filesystem event handler
 class EventHandler(FileSystemEventHandler):
 
-    def __init__(self, dir_handler):
-        super().__init__()
+    def __init__(self, dir_handler, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.dir_item = dir_handler
         self.dir_item.apply_init_conventions()
 
@@ -50,17 +49,21 @@ class DirItem:
     def __init__(self, config):
         # dict mapping loaded from config file
 
-        # for test
-        self.config = config
+        # possible refactor
+        # self.config = config
+        # self.conventions = self.config.get('conventions')
+        # self.conventions_path_map = {convention.get('target_directory'): convention for convention in self.conventions}
 
-        self.conventions = self.config.get('conventions')
-        self.conventions_map = {convention['target_directory']: convention for convention in self.conventions}
+        self.conventions = config
+        self.conventions_path_map = self._get_convention_map()
 
+    # side effect
     def _create_folders(self, folder_path):
         try:
             os.mkdir(folder_path)
         except FileExistsError:
             print('This file already exists')
+            # do nothing
         finally:
             pass
 
@@ -70,19 +73,22 @@ class DirItem:
 
     def _apply_target_directory_folder_structure(self):
 
-        for folder_path in self.conventions_map.keys():
+        for folder_path in self.conventions_path_map.keys():
             self._create_folders(folder_path)
 
     def _get_file_sort_folder_structure(self):
 
-        for path, path_config in self.conventions_map.items():
-            filetype_sort_convention = self._get_file_convention(path_config, key=FOLDER_SORT_KEY)
+        file_sort_mapping = self._get_convention_map(
+            convention_type=FOLDER_CONVENTION_KEY,
+            convention_name=FOLDER_SORT_KEY)
 
-            if filetype_sort_convention:
+        print(file_sort_mapping)
 
-                for folder in filetype_sort_convention.keys():
-                    folder_path = os.path.join(path, folder)
-                    yield folder_path
+        for path, filetype_sort_convention in file_sort_mapping.items():
+
+            for folder in filetype_sort_convention.keys():
+                folder_path = os.path.join(path, folder)
+                yield folder_path
 
     def _apply_file_sort_folder_structure(self):
 
@@ -91,34 +97,36 @@ class DirItem:
 
     def apply_event_conventions(self, path):
 
-        # test: path from keys must be valid, else error
-        # test: folder conventions must be well formed, else continue
-        # test: name_scheme must be defined, else ignore
+        item_conventions = self._get_convention_by_type(path)
+        renamed_path = self._apply_name_convention(path, item_conventions)
+        self._apply_sort_convention(renamed_path, item_conventions)
 
-        item_conventions = self._get_directoryitem_config(path)
-        self._apply_name_convention(path, item_conventions)
-        self._apply_sort_convention(path, item_conventions)
-
+    # pure function
     def _apply_name_convention(self, path, conventions):
         name_scheme = conventions.get('name_scheme')
         head, tail = os.path.split(path)
 
         if os.path.isfile(path):
-            root, ext = os.path.splitext(tail)
+            tail, ext = os.path.splitext(tail)
+        else:
+            ext = ''
 
         if name_scheme:
-            renamed_path = os.path.join(head, name_scheme.format(basename=root)+ext)
+            renamed_path = os.path.join(head, name_scheme.format(basename=tail) + ext)
             os.rename(path, renamed_path)
+
+            return renamed_path
 
     def _apply_duplicates_convention(self, conventions):
         pass
 
     def _apply_sort_convention(self, path, conventions):
-        sort_scheme = conventions.get(FOLDER_SORT_KEY)
-        head, tail = os.path.split(path)
 
-        if os.path.isfile(path):
-            root, ext = os.path.splitext(tail)
+        sort_scheme = conventions.get(FOLDER_SORT_KEY)
+        sort_qualifier = None
+
+        head, tail = os.path.split(path)
+        root, ext = os.path.splitext(tail)
 
         # possible refactor
         if sort_scheme:
@@ -129,69 +137,43 @@ class DirItem:
                 dest_path = os.path.join(head, sort_qualifier, tail)
                 shutil.move(path, dest_path)
 
-    def _apply_subdir_structure(self, conventions):
-        pass
+    def _get_convention_by_type(self, convention_type, path=''):
 
-    def _get_file_convention(self, config, key=None):
-
-        file_conventions = config.get(FILE_CONVENTION_KEY)
-
-        if file_conventions:
-            if key is not None:
-                return file_conventions.get(key)
-            else:
-                print(file_conventions)
-                return file_conventions
-        else:
-            return None
-
-    def _get_folder_convention(self, config, key=None):
-
-        folder_conventions = config.get(FOLDER_CONVENTION_KEY)
-
-        if folder_conventions:
-            if key:
-                return folder_conventions.get(key)
-            else:
-                return folder_conventions
-        else:
-            return None
-
-    def _get_path_config(self, path):
-
-        try:
-            head, tail = os.path.split(path)
-            path_config = self.conventions_map[head]
-
-            if os.path.isdir(path):
-                conventions = self._get_folder_convention(path_config)
-            elif os.path.isfile(path):
-                conventions = self._get_file_convention(path_config)
-
-        except KeyError as e:
-            print(e)
-
-        finally:
-            pass
-
-            return path_config
-
-    def _get_directoryitem_config(self, path):
         conventions = {}
         try:
             head, tail = os.path.split(path)
-            path_config = self.conventions_map[head]
+            path_config = self.conventions_path_map[head]
 
             if os.path.isdir(path):
-                conventions = self._get_folder_convention(path_config)
-            elif os.path.isfile(path):
-                conventions = self._get_file_convention(path_config)
+                conventions = path_config.get(FOLDER_CONVENTION_KEY)
+            elif os.path.isfile(path) or os.path.islink(path):
+                conventions = path_config.get(FILE_CONVENTION_KEY)
+            else:
+                conventions = path_config.get(FOLDER_CONVENTION_KEY)
 
         except KeyError as e:
             print(e)
-
+            # do something here
         finally:
             return conventions
+
+    def _get_convention_map(self, convention_type=None, convention_name=None):
+
+        dir_conventions = {
+            convention.get('target_directory'):
+                recursive_get(
+                    convention, convention_type, convention_name
+                ) for convention in self.conventions
+        }
+
+        return dir_conventions
+
+
+def recursive_get(item_map, *keys, default={}):
+    keys = [key for key in keys if key is not None]
+    if not len(keys):
+        return item_map
+    return reduce(lambda item_map, key: item_map.get(key, default), keys, item_map)
 
 
 def begin_observer_thread(dir_handler):
