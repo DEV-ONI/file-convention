@@ -1,5 +1,6 @@
 import os
 import shutil
+import tempfile
 import toml
 import pytest
 from file_convention.monitor import begin_observer_thread, DirItem
@@ -62,6 +63,7 @@ def file_creation(setup_test_folder, file_name):
     yield file_path
 
 
+
 @pytest.fixture(scope='function')
 def batch_file_creation(setup_test_folder, extension_by_folder):
 
@@ -80,10 +82,127 @@ def batch_file_creation(setup_test_folder, extension_by_folder):
 @pytest.fixture(scope='function')
 def observer_thread():
 
-    config = toml.load(TEST_CONFIG)
-    dir_handler = DirItem(config)
+    dir_handler = DirItem({})
     observer = begin_observer_thread(dir_handler)
 
     observer.start()
     yield observer
     observer.stop()
+
+
+@pytest.fixture(scope='function')
+def observer_thread_method():
+    
+    def _observer_thread_method(config, path):
+
+        dir_handler = DirItem(config)
+        observer = begin_observer_thread(dir_handler, path)
+
+        observer.start()
+        return observer
+    
+    return _observer_thread_method
+
+@pytest.fixture(scope='function')
+def tempfolder_creation(target_folders):
+
+    tempdirs = []
+
+    for folder in target_folders:
+        tempdir = tempfile.mkdtemp(prefix=folder)
+        tempdirs.append(tempdir)
+    
+    yield tempdirs
+
+    for tempdir in tempdirs:
+        shutil.rmtree(tempdir)
+
+
+@pytest.fixture(scope='function')
+def batch_diritem_creation(): 
+
+    def _batch_diritem_creation(temp_dirs, paths, item):
+
+        for temp_dir in temp_dirs:
+
+            target_folders = []
+
+            for path in paths:   
+                full_path = os.path.join(temp_dir, path)
+                
+                if item == 'file':
+                    with open(full_path, 'w+'):
+                        pass
+                elif item == 'folder':
+                    os.mkdir(full_path)
+                else:
+                    pass
+                    # do something
+
+                target_folders.append(full_path)
+
+        return target_folders
+
+    return _batch_diritem_creation 
+
+
+## refactor needed for below
+
+@pytest.fixture(scope='function')
+def generate_file_sort_config():
+
+    def _generate_file_sort_config(target_folders, file_map):
+
+        config = []
+
+        for folder in target_folders:
+
+            config.append({
+                'target_directory': folder,
+                'file_convention': {'file_sort': file_map}
+            })
+
+        return config
+
+    return _generate_file_sort_config
+
+@pytest.fixture(scope='function')
+def generate_file_name_config():
+
+    def _generate_file_name_config(target_folders, name_scheme):
+        
+        config = []
+
+        for folder in target_folders:
+
+            config.append({
+                'target_directory': folder,
+                'file_convention': {'name_scheme': name_scheme}
+            })
+
+        return config
+
+    return _generate_file_name_config
+
+
+@pytest.fixture(scope='function')
+def generate_folder_name_config():
+
+    def _generate_folder_name_config(target_folders, name_scheme):
+        
+        config = []
+
+        for folder in target_folders:
+
+            config.append({
+                'target_directory': folder,
+                'folder_convention': {'name_scheme': name_scheme}
+            })
+
+        return config
+
+    return _generate_folder_name_config
+
+
+
+
