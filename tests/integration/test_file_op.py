@@ -4,114 +4,114 @@ import time
 import toml
 from file_convention.monitor import begin_observer_thread, DirItem
 
-OBSERVER_TIMEOUT = 10
+OBSERVER_TIMEOUT = 5
 
 TEST_CONFIG_FILENAME = 'test_conventions.toml'
 TEST_PATH = './simulated_folder'
 
 
-class MockTOML:
-
-    def __init__(self):
-
-        self.target_directory = TEST_PATH
-        self.file_sort = dict(
-            markdown=['.toml', '.md', '.yaml'],
-            video=[
-                '.3g2', '.3gp', '.avi',
-                '.flv', '.h264', '.m4v',
-                '.mkv', '.mov', '.mp4',
-                '.mpg', '.rm', '.swf', '.vob', '.wmv'
-            ],
-            text=[
-                '.doc', '.odt', '.pdf',
-                '.rtf', '.tex', '.txt', '.wpd'
-            ],
-            audio=[
-                '.aif', '.cda', '.mid',
-                '.mp3', '.mpa', '.ogg',
-                '.wav', '.wma', '.wpl'
-            ],
-            compressed_and_executable=[
-                '.7z', '.arj', '.deb',
-                '.pkg', '.rar', '.rpm',
-                '.tar', '.z', '.zip', '.exe'
-            ]
-        )
-
-    def file_sort_conventions_map(self, *args, **kwargs):
-        return {'file_convention': self.file_sort}
+# urgent refactor needed to move observer fixture to TestClass level
 
 
-# @pytest.mark.eval
-@pytest.mark.parametrize('folder_name, expected_result', [
-    ('test_dir', 'test_dir-modified'),
-    ('test_dir2', 'test_dir2-modified'),
-])
-def test_apply_folder_name_scheme(observer_thread, folder_creation, expected_result):
+@pytest.mark.eval
+@pytest.mark.parametrize(
+    'target_folders, folder_names, name_scheme, expected_name', [
+        (['dir'], ['sub_dir1'], '{basename}-modified', 'sub_dir1-modified'),
+        (['dir'], ['sub_dir2'], '{basename}-modified', 'sub_dir2-modified'),
+    ]
+)
+def test_apply_folder_name_scheme(
+    target_folders, folder_names, 
+    name_scheme, expected_name,
+    tempfolder_creation, generate_folder_name_config,
+    batch_diritem_creation, observer_thread_method
+    ):
 
-    observer = observer_thread
-    test_folder_dir = folder_creation
+    temp_dirs = tempfolder_creation
+    config = generate_folder_name_config(temp_dirs, name_scheme)
+    observer = observer_thread_method(config, temp_dirs)
 
-    head, tail = os.path.split(test_folder_dir)
-    expected_path = os.path.join(head, expected_result)
+    folder = batch_diritem_creation(
+        temp_dirs, folder_names, 'folder'
+    )
 
     observer.join(timeout=OBSERVER_TIMEOUT)
 
-    assert os.path.isdir(expected_path)
+    for temp_dir in temp_dirs:
+        expected_path = os.path.join(temp_dir, expected_name)
+
+        assert os.path.isdir(expected_path)
 
 
-# @pytest.mark.eval
-@pytest.mark.parametrize('file_name, expected_result', [
-    ('test_file.py', 'test_file-modified.py'),
-    ('test_file.js', 'test_file-modified.js'),
-])
-def test_apply_file_name_scheme(observer_thread, file_creation, expected_result):
 
-    observer = observer_thread
-    test_folder_dir = file_creation
+@pytest.mark.eval
+@pytest.mark.parametrize(
+    'target_folders, file_names, name_scheme, expected_name', [
+        (['dir'], ['file1'], '{basename}-modified', 'file1-modified'),
+        (['dir'], ['file2'], '{basename}-modified', 'file2-modified'),
+    ]
+)
+def test_apply_file_name_scheme(
+    target_folders, file_names, 
+    name_scheme, expected_name,
+    tempfolder_creation, generate_file_name_config,
+    batch_diritem_creation, observer_thread_method
+    ):
 
-    head, tail = os.path.split(test_folder_dir)
-    expected_path = os.path.join(head, expected_result)
+    temp_dirs = tempfolder_creation
+    config = generate_file_name_config(temp_dirs, name_scheme)
+    observer = observer_thread_method(config, temp_dirs)
+
+    print(f'file names: {file_names}')
+
+    files = batch_diritem_creation(
+        temp_dirs, file_names, 'file'
+    )
 
     observer.join(timeout=OBSERVER_TIMEOUT)
 
-    assert os.path.isfile(expected_path)
+    for temp_dir in temp_dirs:
+        expected_path = os.path.join(temp_dir, expected_name)
+
+        assert os.path.isfile(expected_path)
 
 
-# @pytest.mark.eval
-@pytest.mark.parametrize('extension_by_folder', [
-    {
-        'video': ['.mkv', '.mov', '.mp4'],
-        'audio': ['.mp3', '.mpa', '.ogg'],
-        'text': ['.doc', '.odt', '.pdf'],
-        'compressed_and_executable': ['.tar', '.z', '.zip', '.exe']
-    }
 
+@pytest.mark.eval
+@pytest.mark.parametrize('target_folders, file_map, filemove_map', [
+    (
+        ['dir'], {'subdir': ['.py', '.js']}, 
+        {'file.py': 'subdir/file.py', 'file.js': 'subdir/file.js'}
+
+    )
 ])
-def test_apply_file_sort(monkeypatch, observer_thread, batch_file_creation):
-    observer = observer_thread
-    toml = MockTOML()
-    # monkeypatch.setattr(DirItem, '_get_directoryitem_config', toml.file_sort_conventions_map)
+def test_apply_sort_convention(
+    target_folders, file_map, 
+    filemove_map, observer_thread_method, tempfolder_creation,
+    batch_diritem_creation, generate_file_sort_config
+    ):
+
+    temp_dirs = tempfolder_creation
+    config = generate_file_sort_config(temp_dirs, file_map)
+    observer = observer_thread_method(config, temp_dirs)
+
+    files = batch_diritem_creation(
+        temp_dirs, filemove_map.keys(), 'file'
+    )
+
     observer.join(timeout=OBSERVER_TIMEOUT)
-    os.listdir(TEST_PATH)
+
+    for temp_dir in temp_dirs:
+        expected_files = [
+            os.path.join(temp_dir, file) for file in filemove_map.values()
+        ]
+
+        assert False not in [os.path.isfile(file) for file in expected_files]
 
 
-# @pytest.mark.eval
-def test_create_temp_config():
 
-    test_config = tmp_path / TEST_CONFIG_FILENAME
 
-    with open(test_config, 'w+') as file:
-        file.write(TEST_TOML)
 
-    config = toml.load(test_config)
-    diritem = DirItem(config)
 
-    folder_paths = []
 
-    for folder_path in diritem._get_file_sort_folder_structure():
-        folder_paths.append(folder_path)
 
-    print(folder_paths)
-    assert True
