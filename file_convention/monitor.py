@@ -242,14 +242,15 @@ def recursive_get(item_map, *keys, default={}):
     return reduce(lambda item_map, key: item_map.get(key, default), keys, item_map)
 
 
-def begin_observer_thread(dir_handler, path):
+def begin_observer_thread(dir_handler, paths):
 
     event_handler = EventHandler(dir_handler)
     observer = Observer()
 
     # an observer is called to a single parent directory.
     # the catch-all dispatch handles events for subdirectories
-    observer.schedule(event_handler, path, recursive=True)
+    for path in paths:
+        observer.schedule(event_handler, path, recursive=True)
 
     return observer
 
